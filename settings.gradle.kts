@@ -16,8 +16,18 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/facebook/meta-wearables-dat-android")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull
+                    ?: System.getenv("GITHUB_USER") ?: ""
+                password = providers.gradleProperty("gpr.token").orNull
+                    ?: System.getenv("GITHUB_TOKEN") ?: ""
+            }
+        }
     }
 }
 
 rootProject.name = "GettingRichApp"
 include(":app")
+include(":docs")

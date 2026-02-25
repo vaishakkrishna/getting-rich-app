@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.gettingrichapp"
-        minSdk = 24
+        minSdk = 29
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -49,7 +49,28 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+
+    // Navigation
+    implementation(libs.androidx.navigation.compose)
+
+    // ViewModel + Compose
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    // Coroutines
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
+
+    // TensorFlow Lite
+    implementation(libs.tflite)
+    implementation(libs.tflite.support)
+
+    // DAT SDK — uncomment once GITHUB_TOKEN is configured (see settings.gradle.kts)
+    // implementation(libs.mwdat.core)
+    // implementation(libs.mwdat.camera)
+    // debugImplementation(libs.mwdat.mockdevice)
+
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
