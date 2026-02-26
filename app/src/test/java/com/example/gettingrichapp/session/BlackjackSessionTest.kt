@@ -81,11 +81,11 @@ class BlackjackSessionTest {
     fun `stopSession clears round state`() = runTest {
         session.startSession()
 
-        // Set up cards and advise
+        // Player: 10S + 6H (largest bboxes), Dealer: 9C (smallest bbox)
         cardDetector.nextDetections = listOf(
-            card(CardValue.NINE, Suit.CLUBS),       // dealer
-            card(CardValue.TEN, Suit.SPADES),        // player
-            card(CardValue.SIX, Suit.HEARTS)         // player
+            card(CardValue.TEN, Suit.SPADES),
+            card(CardValue.SIX, Suit.HEARTS),
+            card(CardValue.NINE, Suit.CLUBS)
         )
         session.advise()
         assertTrue(session.roundState.value.playerCards.isNotEmpty())
@@ -100,11 +100,12 @@ class BlackjackSessionTest {
     fun `advise with 3 cards produces advice`() = runTest {
         session.startSession()
 
-        // Dealer: 9C, Player: 10S + 6H → hard 16 vs 9 → SURRENDER
+        // Player: 10S + 6H (largest bboxes), Dealer: 9C (smallest bbox)
+        // hard 16 vs 9 → SURRENDER
         cardDetector.nextDetections = listOf(
-            card(CardValue.NINE, Suit.CLUBS),
             card(CardValue.TEN, Suit.SPADES),
-            card(CardValue.SIX, Suit.HEARTS)
+            card(CardValue.SIX, Suit.HEARTS),
+            card(CardValue.NINE, Suit.CLUBS)
         )
 
         session.advise()
@@ -119,10 +120,10 @@ class BlackjackSessionTest {
     }
 
     @Test
-    fun `advise with less than 3 cards has no dealer upcard`() = runTest {
+    fun `advise with less than 3 cards produces error`() = runTest {
         session.startSession()
 
-        // Only 2 cards — both treated as player cards, no dealer upcard
+        // Only 2 cards — need at least 3 (2 player + 1 dealer)
         cardDetector.nextDetections = listOf(
             card(CardValue.TEN, Suit.SPADES),
             card(CardValue.SIX, Suit.HEARTS)
@@ -131,10 +132,7 @@ class BlackjackSessionTest {
         session.advise()
 
         val state = session.sessionState.value
-        assertTrue(state is SessionState.AdviceReady)
-        val advice = (state as SessionState.AdviceReady).advice
-        assertNull(advice.dealerUpcard)
-        assertEquals(2, advice.playerCards.size)
+        assertTrue("Expected Error but was $state", state is SessionState.Error)
     }
 
     @Test
@@ -153,10 +151,12 @@ class BlackjackSessionTest {
     fun `advise speaks the advice`() = runTest {
         session.startSession()
 
+        // Player: A♠ + 7H (largest bboxes), Dealer: 7C (smallest bbox)
+        // soft 18 vs 7 → STAND
         cardDetector.nextDetections = listOf(
-            card(CardValue.SEVEN, Suit.CLUBS),       // dealer
-            card(CardValue.ACE, Suit.SPADES),         // player
-            card(CardValue.SEVEN, Suit.HEARTS)        // player — soft 18 vs 7 → STAND
+            card(CardValue.ACE, Suit.SPADES),
+            card(CardValue.SEVEN, Suit.HEARTS),
+            card(CardValue.SEVEN, Suit.CLUBS)
         )
 
         session.advise()
@@ -169,7 +169,8 @@ class BlackjackSessionTest {
     fun `advise updates running count`() = runTest {
         session.startSession()
 
-        // 2S(+1), 3H(+1), 5D(+1) = running count +3
+        // Player: 2S(+1) + 3H(+1) (largest bboxes), Dealer: 5D(+1) (smallest bbox)
+        // = running count +3
         cardDetector.nextDetections = listOf(
             card(CardValue.TWO, Suit.SPADES),
             card(CardValue.THREE, Suit.HEARTS),
@@ -187,25 +188,21 @@ class BlackjackSessionTest {
     fun `advise can be called from AdviceReady state`() = runTest {
         session.startSession()
 
+        // Player: 10S + 6H, Dealer: 7C
         cardDetector.nextDetections = listOf(
-            card(CardValue.SEVEN, Suit.CLUBS),
-            card(CardValue.TEN, Suit.SPADES),
-            card(CardValue.SIX, Suit.HEARTS)
-        )
-        session.advise()
-        assertTrue(session.sessionState.value is SessionState.AdviceReady)
-
-        // Now add another card — advise again from AdviceReady state
-        cardDetector.nextDetections = listOf(
-            card(CardValue.SEVEN, Suit.CLUBS),
             card(CardValue.TEN, Suit.SPADES),
             card(CardValue.SIX, Suit.HEARTS),
-            card(CardValue.THREE, Suit.DIAMONDS)  // new card
+            card(CardValue.SEVEN, Suit.CLUBS)
         )
         session.advise()
         assertTrue(session.sessionState.value is SessionState.AdviceReady)
-        // 3D is new, 4 total cards seen
-        assertEquals(4, cardCounter.countState.value.totalCardsSeen)
+        assertEquals(3, cardCounter.countState.value.totalCardsSeen)
+
+        // Advise again from AdviceReady — same 3 cards, no new cards
+        session.advise()
+        assertTrue(session.sessionState.value is SessionState.AdviceReady)
+        // Counter deduplicates: still 3 total cards seen
+        assertEquals(3, cardCounter.countState.value.totalCardsSeen)
     }
 
     @Test
@@ -221,11 +218,11 @@ class BlackjackSessionTest {
     fun `multi-round scenario preserves running count`() = runTest {
         session.startSession()
 
-        // Round 1: dealer 9C, player 2S + 3H → all low cards (+1 each)
+        // Round 1: Player: 2S(+1) + 3H(+1), Dealer: 9C(0)
         cardDetector.nextDetections = listOf(
-            card(CardValue.NINE, Suit.CLUBS),    // neutral (0)
-            card(CardValue.TWO, Suit.SPADES),    // +1
-            card(CardValue.THREE, Suit.HEARTS)   // +1
+            card(CardValue.TWO, Suit.SPADES),
+            card(CardValue.THREE, Suit.HEARTS),
+            card(CardValue.NINE, Suit.CLUBS)
         )
         session.advise()
         assertEquals(2, cardCounter.countState.value.runningCount)
@@ -237,11 +234,11 @@ class BlackjackSessionTest {
         assertEquals(2, cardCounter.countState.value.runningCount)
         assertEquals(0, cardCounter.countState.value.cardsSeenThisRound.size)
 
-        // Round 2: dealer 7D, player KS(-1) + AC(-1)
+        // Round 2: Player: KS(-1) + AC(-1), Dealer: 7D(0)
         cardDetector.nextDetections = listOf(
-            card(CardValue.SEVEN, Suit.DIAMONDS),  // neutral (0)
-            card(CardValue.KING, Suit.SPADES),      // -1
-            card(CardValue.ACE, Suit.CLUBS)          // -1
+            card(CardValue.KING, Suit.SPADES),
+            card(CardValue.ACE, Suit.CLUBS),
+            card(CardValue.SEVEN, Suit.DIAMONDS)
         )
         session.advise()
         // Running count: 2 + 0 + (-1) + (-1) = 0
@@ -253,10 +250,11 @@ class BlackjackSessionTest {
     fun `resetCount zeroes count and transitions to Streaming`() = runTest {
         session.startSession()
 
+        // Player: 2S + 3H, Dealer: 9C
         cardDetector.nextDetections = listOf(
-            card(CardValue.NINE, Suit.CLUBS),
             card(CardValue.TWO, Suit.SPADES),
-            card(CardValue.THREE, Suit.HEARTS)
+            card(CardValue.THREE, Suit.HEARTS),
+            card(CardValue.NINE, Suit.CLUBS)
         )
         session.advise()
         assertEquals(2, cardCounter.countState.value.runningCount)
@@ -272,11 +270,12 @@ class BlackjackSessionTest {
     fun `hand evaluation is correct in advice`() = runTest {
         session.startSession()
 
-        // Dealer: 6C, Player: A♠ + 6H → soft 17 vs 6 → DOUBLE
+        // Player: A♠ + 6H (largest bboxes), Dealer: 6C (smallest bbox)
+        // soft 17 vs 6 → DOUBLE
         cardDetector.nextDetections = listOf(
-            card(CardValue.SIX, Suit.CLUBS),
             card(CardValue.ACE, Suit.SPADES),
-            card(CardValue.SIX, Suit.HEARTS)
+            card(CardValue.SIX, Suit.HEARTS),
+            card(CardValue.SIX, Suit.CLUBS)
         )
         session.advise()
 
@@ -291,11 +290,12 @@ class BlackjackSessionTest {
     fun `blackjack results in STAND`() = runTest {
         session.startSession()
 
-        // Dealer: 5D, Player: A♠ + K♥ → blackjack
+        // Player: A♠ + K♥ (largest bboxes), Dealer: 5D (smallest bbox)
+        // blackjack
         cardDetector.nextDetections = listOf(
-            card(CardValue.FIVE, Suit.DIAMONDS),
             card(CardValue.ACE, Suit.SPADES),
-            card(CardValue.KING, Suit.HEARTS)
+            card(CardValue.KING, Suit.HEARTS),
+            card(CardValue.FIVE, Suit.DIAMONDS)
         )
         session.advise()
 
@@ -341,11 +341,13 @@ class BlackjackSessionTest {
         override fun initialize() {}
 
         override suspend fun detect(frame: Bitmap, confidenceThreshold: Float): DetectionResult {
-            return DetectionResult(
-                cards = nextDetections.map {
-                    DetectedCard(it, 0.99f, RectF(0f, 0f, 1f, 1f))
-                }
-            )
+            // Assign decreasing bbox sizes so the first card listed gets the
+            // largest box (player) and the last gets the smallest (dealer).
+            val cards = nextDetections.mapIndexed { index, card ->
+                val size = (nextDetections.size - index) * 100f
+                DetectedCard(card, 0.99f, RectF(0f, 0f, size, size))
+            }
+            return DetectionResult(cards = cards)
         }
 
         override fun release() {}

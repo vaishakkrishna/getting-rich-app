@@ -4,6 +4,7 @@ import com.example.gettingrichapp.audio.AdviceSpeaker
 import com.example.gettingrichapp.camera.FrameProvider
 import com.example.gettingrichapp.counting.CardCounter
 import com.example.gettingrichapp.detection.CardDetector
+import com.example.gettingrichapp.detection.DetectedCard
 import com.example.gettingrichapp.model.Advice
 import com.example.gettingrichapp.model.Card
 import com.example.gettingrichapp.strategy.HandEvaluator
@@ -50,42 +51,47 @@ class BlackjackSession(
                 return
             }
 
-            // 2. Detect cards
-            val detectionResult = cardDetector.detect(frameData.bitmap)
-            val detectedCards = detectionResult.cards.map { it.card }
+            // 2. Detect cards (use 0.60 threshold — the model is undertrained
+            //    and typically produces confidence scores in the 0.65-0.80 range)
+            val detectionResult = cardDetector.detect(frameData.bitmap, confidenceThreshold = 0.60f)
 
-            if (detectedCards.isEmpty()) {
+            if (detectionResult.cards.isEmpty()) {
                 _sessionState.value = SessionState.Error("No cards detected")
                 return
             }
 
-            // 3. Process through counter (dedup + update count)
-            cardCounter.processDetectedCards(detectedCards)
+            // 3. Deduplicate detections — each physical card has two number corners,
+            //    so the model often produces two bounding boxes for the same card.
+            //    Group by card identity and keep the highest-confidence detection.
+            val dedupedDetections = deduplicateDetections(detectionResult.cards)
 
-            // 4. Get all cards seen this round from counter state
-            val countState = cardCounter.countState.value
-            val allRoundCards = countState.cardsSeenThisRound
-
-            // Separate player cards and dealer upcard
-            // Convention: the last card detected that differs from the player hand
-            // is considered the dealer upcard. For simplicity, if we have >=2 cards,
-            // treat all but the last as player cards and the last as dealer upcard.
-            val (playerCards, dealerUpcard) = splitPlayerAndDealer(allRoundCards)
-
-            // 5. Evaluate hand
-            val handEvaluation = handEvaluator.evaluate(playerCards)
-
-            // 6. Get recommendation (only if we have a dealer upcard)
-            val action = if (dealerUpcard != null) {
-                strategyEngine.recommend(handEvaluation, dealerUpcard, playerCards.size)
-            } else {
-                // Can't recommend without dealer upcard, just show cards
-                null
+            if (dedupedDetections.size < 3) {
+                _sessionState.value = SessionState.Error(
+                    "Need at least 3 cards (2 player + 1 dealer), detected ${dedupedDetections.size}"
+                )
+                return
             }
 
-            // 7. Build advice
+            // 4. Split into player/dealer by bounding box area.
+            //    The dealer's card is farther away → smallest bbox.
+            //    The two largest bboxes are the player's cards.
+            val (playerDetections, dealerDetection) = splitPlayerAndDealer(dedupedDetections)
+            val playerCards = playerDetections.map { it.card }
+            val dealerUpcard = dealerDetection.card
+
+            // 5. Process through counter (dedup + update count)
+            cardCounter.processDetectedCards(playerCards + dealerUpcard)
+
+            // 6. Evaluate hand
+            val handEvaluation = handEvaluator.evaluate(playerCards)
+
+            // 7. Get recommendation
+            val action = strategyEngine.recommend(handEvaluation, dealerUpcard, playerCards.size)
+
+            // 8. Build advice
+            val countState = cardCounter.countState.value
             val advice = Advice(
-                action = action ?: com.example.gettingrichapp.model.Action.STAND,
+                action = action,
                 playerCards = playerCards,
                 dealerUpcard = dealerUpcard,
                 handEvaluation = handEvaluation,
@@ -93,19 +99,17 @@ class BlackjackSession(
                 trueCount = countState.trueCount
             )
 
-            // 8. Update round state
+            // 9. Update round state
             _roundState.value = RoundState(
                 playerCards = playerCards,
                 dealerUpcard = dealerUpcard,
                 currentAdvice = advice
             )
 
-            // 9. Speak advice (only if we have a recommendation)
-            if (action != null) {
-                adviceSpeaker.speak(advice)
-            }
+            // 10. Speak advice
+            adviceSpeaker.speak(advice)
 
-            // 10. Update session state
+            // 11. Update session state
             _sessionState.value = SessionState.AdviceReady(advice)
 
         } catch (e: Exception) {
@@ -136,20 +140,28 @@ class BlackjackSession(
     }
 
     /**
-     * Split detected cards into player hand and dealer upcard.
-     *
-     * Heuristic: if we have 3+ cards, the first card is the dealer upcard
-     * and the rest are the player's hand. With 2 cards, both are player cards
-     * (dealer upcard not yet detected). With 1 card, it's a player card.
+     * Deduplicate detections of the same card. A physical card has two number
+     * corners, so the model often fires twice for one card. Group detections
+     * by card identity (value + suit) and keep the one with highest confidence.
      */
-    private fun splitPlayerAndDealer(cards: List<Card>): Pair<List<Card>, Card?> {
-        return when {
-            cards.size >= 3 -> {
-                val dealerUpcard = cards.first()
-                val playerCards = cards.drop(1)
-                playerCards to dealerUpcard
-            }
-            else -> cards to null
-        }
+    private fun deduplicateDetections(detections: List<DetectedCard>): List<DetectedCard> {
+        return detections
+            .groupBy { it.card }
+            .map { (_, group) -> group.maxBy { it.confidence } }
+    }
+
+    /**
+     * Split detected cards into player hand and dealer upcard using bounding
+     * box area. The dealer's card is farther away and appears smaller in frame.
+     * Sort by bbox area descending — the two largest are the player's cards,
+     * the smallest is the dealer upcard.
+     */
+    private fun splitPlayerAndDealer(
+        detections: List<DetectedCard>
+    ): Pair<List<DetectedCard>, DetectedCard> {
+        val sorted = detections.sortedByDescending { it.boundingBox.width() * it.boundingBox.height() }
+        val playerDetections = sorted.take(2)
+        val dealerDetection = sorted.last()
+        return playerDetections to dealerDetection
     }
 }

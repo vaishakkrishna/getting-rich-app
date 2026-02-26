@@ -2,6 +2,8 @@ package com.example.gettingrichapp.detection
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import com.example.gettingrichapp.model.Card
 import com.example.gettingrichapp.model.CardValue
@@ -38,8 +40,8 @@ class TfLiteCardDetector(
         return inferenceMutex.withLock {
             val startTime = System.currentTimeMillis()
 
-            // Resize to model input size
-            val inputBitmap = Bitmap.createScaledBitmap(frame, INPUT_SIZE, INPUT_SIZE, true)
+            // Letterbox resize to model input size (maintain aspect ratio, pad with gray)
+            val (inputBitmap, scale, padW, padH) = letterboxResize(frame, INPUT_SIZE)
 
             // Prepare input buffer: [1, 640, 640, 3] float32
             val inputBuffer = ByteBuffer.allocateDirect(1 * INPUT_SIZE * INPUT_SIZE * 3 * 4)
@@ -64,7 +66,10 @@ class TfLiteCardDetector(
                 rawOutput,
                 confidenceThreshold,
                 frame.width,
-                frame.height
+                frame.height,
+                scale,
+                padW,
+                padH
             )
 
             val processingTime = System.currentTimeMillis() - startTime
@@ -77,16 +82,46 @@ class TfLiteCardDetector(
         interpreter = null
     }
 
+    /**
+     * Letterbox-resize a bitmap to targetSize x targetSize, maintaining aspect ratio
+     * and padding with gray (114, 114, 114) to match YOLO training preprocessing.
+     */
+    private fun letterboxResize(bitmap: Bitmap, targetSize: Int): LetterboxResult {
+        val w = bitmap.width
+        val h = bitmap.height
+        val scale = minOf(targetSize.toFloat() / h, targetSize.toFloat() / w)
+        val newW = (w * scale).toInt()
+        val newH = (h * scale).toInt()
+
+        val padW = (targetSize - newW) / 2
+        val padH = (targetSize - newH) / 2
+
+        val resized = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
+        val padded = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(padded)
+        canvas.drawColor(Color.rgb(114, 114, 114))
+        canvas.drawBitmap(resized, padW.toFloat(), padH.toFloat(), null)
+
+        if (resized != bitmap) {
+            resized.recycle()
+        }
+
+        return LetterboxResult(padded, scale, padW, padH)
+    }
+
     private fun parseDetections(
         rawOutput: Array<FloatArray>,
         confidenceThreshold: Float,
         originalWidth: Int,
-        originalHeight: Int
+        originalHeight: Int,
+        scale: Float,
+        padW: Int,
+        padH: Int
     ): List<DetectedCard> {
         val candidates = mutableListOf<DetectionCandidate>()
 
         // rawOutput layout: [56][8400] — features-first
-        // Row 0 = cx, Row 1 = cy, Row 2 = w, Row 3 = h (all normalized 0-1)
+        // Row 0 = cx, Row 1 = cy, Row 2 = w, Row 3 = h (in input pixel coords, 0-640)
         // Rows 4..55 = class scores (52 classes, already sigmoid-activated)
 
         for (i in 0 until NUM_DETECTIONS) {
@@ -103,16 +138,17 @@ class TfLiteCardDetector(
 
             if (maxClassScore < confidenceThreshold) continue
 
-            // Bbox values are normalized (0-1 range). Scale to original image dimensions.
+            // Bbox values are in input pixel coordinates (0-640).
+            // Map back to original image coordinates by removing padding and unscaling.
             val cx = rawOutput[0][i]
             val cy = rawOutput[1][i]
             val w = rawOutput[2][i]
             val h = rawOutput[3][i]
 
-            val left = (cx - w / 2f) * originalWidth
-            val top = (cy - h / 2f) * originalHeight
-            val right = (cx + w / 2f) * originalWidth
-            val bottom = (cy + h / 2f) * originalHeight
+            val left = (cx - w / 2f - padW) / scale
+            val top = (cy - h / 2f - padH) / scale
+            val right = (cx + w / 2f - padW) / scale
+            val bottom = (cy + h / 2f - padH) / scale
 
             val box = RectF(
                 left.coerceIn(0f, originalWidth.toFloat()),
@@ -193,6 +229,13 @@ class TfLiteCardDetector(
         val card: Card,
         val confidence: Float,
         val box: RectF
+    )
+
+    private data class LetterboxResult(
+        val bitmap: Bitmap,
+        val scale: Float,
+        val padW: Int,
+        val padH: Int
     )
 
     companion object {
