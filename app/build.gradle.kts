@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// DAT SDK availability flag — set to true and uncomment deps once GITHUB_TOKEN is configured
+val datSdkAvailable = true
+
 android {
     namespace = "com.example.gettingrichapp"
     compileSdk = 35
@@ -37,6 +40,24 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
+    // Include DAT SDK-dependent sources only when SDK is available
+    if (datSdkAvailable) {
+        sourceSets.getByName("main") {
+            java.srcDir("src/main/java-dat")
+        }
+    }
+
+    // Prevent compression of TFLite model files so they can be memory-mapped
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -65,12 +86,14 @@ dependencies {
     implementation(libs.tflite.support)
 
     // DAT SDK — uncomment once GITHUB_TOKEN is configured (see settings.gradle.kts)
-    // implementation(libs.mwdat.core)
-    // implementation(libs.mwdat.camera)
-    // debugImplementation(libs.mwdat.mockdevice)
+    // Also set datSdkAvailable = true at the top of this file
+     implementation(libs.mwdat.core)
+     implementation(libs.mwdat.camera)
+     debugImplementation(libs.mwdat.mockdevice)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

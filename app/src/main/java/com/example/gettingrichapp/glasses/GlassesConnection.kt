@@ -9,5 +9,6 @@ interface GlassesConnection {
     fun startRegistration(activity: Activity)
     fun startUnregistration(activity: Activity)
     suspend fun hasCameraPermission(): Boolean
+    suspend fun requestCameraPermission(activity: Activity): Boolean
     fun release()
 }

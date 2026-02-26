@@ -12,5 +12,6 @@ data class SessionUiState(
     val runningCount: Int = 0,
     val trueCount: Double = 0.0,
     val isAdvising: Boolean = false,
-    val showResetConfirmation: Boolean = false
+    val showResetConfirmation: Boolean = false,
+    val isPreviewActive: Boolean = false
 )

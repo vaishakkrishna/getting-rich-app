@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">GettingRichApp</string>
+    <string name="mwdat_application_id">0</string>
 </resources>

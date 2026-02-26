@@ -5,6 +5,8 @@
 The project is a greenfield Android app (`GettingRichApp`) that pairs with Meta Ray-Ban smart glasses via the DAT SDK. It receives a camera stream, detects playing cards via on-device ML, and provides real-time blackjack advice (basic strategy + Hi-Lo counting) as audio through the glasses speaker. The current repo is a default Android Studio scaffold with a single `MainActivity` and Compose theme.
 
 The goal is to establish a **parallelizable, interface-driven package architecture** within the single `app` module so that 4–5 developers can work on independent modules simultaneously — glasses connectivity, card detection ML, strategy engine, counting engine, UI — without blocking each other.
+DAT SDK overview: <https://wearables.developer.meta.com/docs/develop>
+DAT SDK API Ref: <https://wearables.developer.meta.com/docs/reference/android/dat/0.4>
 
 ---
 

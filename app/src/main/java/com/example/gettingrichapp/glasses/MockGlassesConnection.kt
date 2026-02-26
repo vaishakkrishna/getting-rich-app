@@ -23,6 +23,8 @@ class MockGlassesConnection : GlassesConnection {
 
     override suspend fun hasCameraPermission(): Boolean = true
 
+    override suspend fun requestCameraPermission(activity: Activity): Boolean = true
+
     override fun release() {
         _connectionState.value = ConnectionState.Disconnected
     }
